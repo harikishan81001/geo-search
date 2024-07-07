@@ -3,10 +3,8 @@ import json
 from shapely.geometry import shape, Point
 import h3
 
-from db import dynamodb 
+from db import clusters_table 
 
-
-clusters_table = dynamodb.Table('Clusters')
 
 def polygon_to_h3(polygon, resolution=9):
     """

@@ -1,63 +1,63 @@
-import boto3
-import json
-from decimal import Decimal
+import csv
 from shapely.geometry import Polygon
-from db import dynamodb
+import h3
+from db import cities_table, clusters_table
 
 
-cities_table = dynamodb.Table('Cities')
-clusters_table = dynamodb.Table('Clusters')
-
-# Function to convert float to Decimal
-def convert_to_decimal(obj):
-    if isinstance(obj, float):
-        return Decimal(str(obj))
-    elif isinstance(obj, list):
-        return [convert_to_decimal(i) for i in obj]
-    elif isinstance(obj, dict):
-        return {k: convert_to_decimal(v) for k, v in obj.items()}
-    return obj
-
-# Insert data into Cities Table
-cities_table.put_item(
-    Item=convert_to_decimal({
-        'city_id': '1',
-        'city_name': 'CityA',
-        'city_center': {'longitude': -73.935242, 'latitude': 40.730610},
-        'city_bounds': {
-            'type': 'Polygon',
-            'coordinates': [[-73.935242, 40.730610], [-73.935242, 40.735610], [-73.930242, 40.735610], [-73.930242, 40.730610], [-73.935242, 40.730610]]
-        }
-    })
-)
-
-# Insert data into Clusters Table
-clusters = [
-    {
-        "cluster_id": "1",
-        "city_id": "1",
-        "cluster_name": "ClusterA",
-        "cluster_polygon": {
-            'type': 'Polygon',
-            'coordinates': [[-73.935242, 40.730610], [-73.935242, 40.732610], [-73.933242, 40.732610], [-73.933242, 40.730610], [-73.935242, 40.730610]]
-        }
-    },
-    {
-        "cluster_id": "2",
-        "city_id": "1",
-        "cluster_name": "ClusterB",
-        "cluster_polygon": {
-            'type': 'Polygon',
-            'coordinates': [[-73.933242, 40.732610], [-73.933242, 40.735610], [-73.931242, 40.735610], [-73.931242, 40.732610], [-73.933242, 40.732610]]
-        }
+def polygon_to_h3_indexes(polygon, resolution):
+    """
+    Convert a shapely polygon to a list of H3 indexes at the given resolution.
+    """
+    polygon_geojson = {
+        'type': 'Polygon',
+        'coordinates': [list(polygon.exterior.coords)]
     }
-]
-
-for cluster in clusters:
-    clusters_table.put_item(Item=convert_to_decimal(cluster))
-
-print("Data inserted")
+    return list(h3.polyfill(polygon_geojson, resolution))
 
 
+with open('data/ncr.csv', 'r') as cities_file:
+    cities_reader = csv.DictReader(cities_file)
+    for row in cities_reader:
+        city_id = row['city_id']
+        city_name = row['city_name']
+        city_center_lat = float(row['city_center_lat'])
+        city_center_lng = float(row['city_center_lng'])
+        city_bounds = eval(row['city_bounds'])
+        
+        cities_table.put_item(
+            Item={
+                'city_id': city_id,
+                'city_name': city_name,
+                'city_center': {'latitude': city_center_lat, 'longitude': city_center_lng},
+                'city_bounds': {
+                    'type': 'Polygon',
+                    'coordinates': city_bounds
+                }
+            }
+        )
 
+with open('data/ncr-cluster.csv', 'r') as clusters_file:
+    clusters_reader = csv.DictReader(clusters_file)
+    for row in clusters_reader:
+        cluster_id = row['cluster_id']
+        city_id = row['city_id']
+        cluster_name = row['cluster_name']
+        cluster_polygon = Polygon(eval(row['cluster_polygon']))
+        
+        h3_indexes = polygon_to_h3_indexes(cluster_polygon, resolution=9)
+        
+        for h3_index in h3_indexes:
+            clusters_table.put_item(
+                Item={
+                    'h3_index': h3_index,
+                    'cluster_id': cluster_id,
+                    'city_id': city_id,
+                    'cluster_name': cluster_name,
+                    'cluster_polygon': {
+                        'type': 'Polygon',
+                        'coordinates': eval(row['cluster_polygon'])
+                    }
+                }
+            )
 
+print("Data inserted successfully")
