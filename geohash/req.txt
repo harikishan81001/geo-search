@@ -1,0 +1,4 @@
+boto3==1.20.23
+Shapely==1.8.0
+geohash2==1.1
+folium==0.12.1
