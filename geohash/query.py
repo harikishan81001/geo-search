@@ -30,10 +30,10 @@ def check_point_in_clusters(point, precision=7):
     """
     geohash = geohash2.encode(point.y, point.x, precision=precision)
     clusters = get_clusters_by_geohash(geohash)
-    
+    print(clusters)    
     for cluster in clusters:
         polygon_coordinates = convert_to_float(cluster['cluster_polygon']['coordinates'])
-        import pdb; pdb.set_trace()
+
         polygon = Polygon(polygon_coordinates)
         if polygon.contains(point):
             return cluster['cluster_name']
