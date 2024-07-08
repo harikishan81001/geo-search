@@ -1,53 +1,69 @@
-import boto3
-import json
-from shapely.geometry import shape, Point
+from shapely.geometry import Point, Polygon
 import h3
+import time
+from tqdm import tqdm
+from loguru import logger
+import random
+import statistics
+import atexit
+from db import clusters_table
+import boto3
 
-from db import clusters_table 
 
-
-def polygon_to_h3(polygon, resolution=9):
-    """
-    Convert a shapely Polygon to a set of H3 hexagons at the given resolution.
-    """
-    hexagons = set()
-    min_lng, min_lat, max_lng, max_lat = polygon.bounds
-    lat_lng_pairs = [(lat, lng) for lat in [min_lat, max_lat] for lng in [min_lng, max_lng]]
-    
-    for lat, lng in lat_lng_pairs:
-        hexagons.update(h3.polyfill(geo_json={'type': 'Polygon', 'coordinates': [list(polygon.exterior.coords)]}, res=resolution))
-    
-    return hexagons
-
-def get_clusters_in_city(city_id):
+def get_clusters_by_h3_index(h3_index):
     response = clusters_table.query(
-        KeyConditionExpression=boto3.dynamodb.conditions.Key('city_id').eq(city_id)
+        KeyConditionExpression=boto3.dynamodb.conditions.Key('h3_index').eq(h3_index)
     )
     return response['Items']
 
-def point_to_h3(point, resolution=9):
-    """
-    Convert a shapely Point to an H3 hexagon at the given resolution.
-    """
-    return h3.geo_to_h3(point.y, point.x, resolution)
-
-def check_point_in_clusters(point, clusters_hexagons, resolution=9):
+def check_point_in_clusters(point, resolution=9):
     """
     Check if a point lies within any cluster using H3.
     """
-    point_hex = point_to_h3(point, resolution)
-    for cluster_id, hexagons in clusters_hexagons.items():
-        if point_hex in hexagons:
-            return cluster_id
+    h3_index = h3.geo_to_h3(point.y, point.x, resolution)
+    import pdb; pdb.set_trace()
+    clusters = get_clusters_by_h3_index(h3_index)
+    print(clusters)
+    for cluster in clusters:
+        polygon_coordinates = eval(cluster['cluster_polygon']['coordinates'])
+        polygon = Polygon(polygon_coordinates[0])
+        if polygon.contains(point):
+            return cluster['cluster_name']
+    
     return None
 
-# Fetch clusters from DynamoDB and index them using H3
-city_id = '1'
-clusters = get_clusters_in_city(city_id)
-clusters_hexagons = {cluster['cluster_id']: polygon_to_h3(shape(json.loads(cluster['cluster_polygon']))) for cluster in clusters}
+# Test points
+test_points = [
+    {'latitude': 28.600792101087805, 'longitude': 77.04312829132186, 'description': 'Inside Dwarka'},
+    {'latitude': 28.55103964613204, 'longitude': 76.97192393485614, 'description': 'Outside Delhi NCR'}
+]
 
-# Example usage
-test_point = Point(-73.933242, 40.732610)
-cluster_id = check_point_in_clusters(test_point, clusters_hexagons)
-print("Point is in cluster:", cluster_id)
+times = []
+logger.add("benchmark.log", rotation="1 MB", backtrace=True, diagnose=True)
 
+def save_stats():
+    mean_time = statistics.mean(times) if times else 0
+    median_time = statistics.median(times) if times else 0
+    stdev_time = statistics.stdev(times) if times else 0
+
+    logger.info(f"Mean Time: {mean_time:.6f} seconds")
+    logger.info(f"Median Time: {median_time:.6f} seconds")
+    logger.info(f"Standard Deviation: {stdev_time:.6f} seconds")
+
+    print(f"Mean Time: {mean_time:.6f} seconds")
+    print(f"Median Time: {median_time:.6f} seconds")
+    print(f"Standard Deviation: {stdev_time:.6f} seconds")
+
+atexit.register(save_stats)
+
+for point in tqdm(test_points, desc="Benchmarking"):
+    test_point = Point(point['longitude'], point['latitude'])
+    start_time = time.time()
+    cluster_name = check_point_in_clusters(test_point)
+    end_time = time.time()
+    times.append(end_time - start_time)
+
+    if len(times) % 1000 == 0:
+        logger.info(f"Processed {len(times)} points")
+
+save_stats()

@@ -2,6 +2,17 @@ import csv
 from shapely.geometry import Polygon
 import h3
 from db import cities_table, clusters_table
+from decimal import Decimal
+
+
+def convert_to_decimal(obj):
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, list):
+        return [convert_to_decimal(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_to_decimal(v) for k, v in obj.items()}
+    return obj
 
 
 def polygon_to_h3_indexes(polygon, resolution):
@@ -25,7 +36,7 @@ with open('data/ncr.csv', 'r') as cities_file:
         city_bounds = eval(row['city_bounds'])
         
         cities_table.put_item(
-            Item={
+            Item=convert_to_decimal({
                 'city_id': city_id,
                 'city_name': city_name,
                 'city_center': {'latitude': city_center_lat, 'longitude': city_center_lng},
@@ -33,10 +44,10 @@ with open('data/ncr.csv', 'r') as cities_file:
                     'type': 'Polygon',
                     'coordinates': city_bounds
                 }
-            }
+            })
         )
 
-with open('data/ncr-cluster.csv', 'r') as clusters_file:
+with open('data/ncr-clusters.csv', 'r') as clusters_file:
     clusters_reader = csv.DictReader(clusters_file)
     for row in clusters_reader:
         cluster_id = row['cluster_id']
@@ -48,7 +59,7 @@ with open('data/ncr-cluster.csv', 'r') as clusters_file:
         
         for h3_index in h3_indexes:
             clusters_table.put_item(
-                Item={
+                Item=convert_to_decimal({
                     'h3_index': h3_index,
                     'cluster_id': cluster_id,
                     'city_id': city_id,
@@ -57,7 +68,7 @@ with open('data/ncr-cluster.csv', 'r') as clusters_file:
                         'type': 'Polygon',
                         'coordinates': eval(row['cluster_polygon'])
                     }
-                }
+                })
             )
 
 print("Data inserted successfully")
